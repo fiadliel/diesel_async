@@ -9,6 +9,7 @@ use futures_util::{future, FutureExt};
 #[derive(Default)]
 pub struct StmtCache<DB: Backend, S> {
     cache: HashMap<StatementCacheKey<DB>, S>,
+    cache_counter: u64,
 }
 
 type PrepareFuture<'a, F, S> = future::Either<
@@ -30,6 +31,7 @@ impl<S, DB: Backend> StmtCache<DB, S> {
     pub fn new() -> Self {
         Self {
             cache: HashMap::new(),
+            cache_counter: 0,
         }
     }
 
@@ -69,9 +71,17 @@ impl<S, DB: Backend> StmtCache<DB, S> {
             )))),
             Vacant(entry) => {
                 let metadata = metadata.to_vec();
+                self.cache_counter += 1;
+                let cache_counter = self.cache_counter;
                 let f = async move {
                     let statement = prepare_fn
-                        .prepare(&sql, &metadata, PrepareForCache::Yes)
+                        .prepare(
+                            &sql,
+                            &metadata,
+                            PrepareForCache::Yes {
+                                counter: cache_counter,
+                            },
+                        )
                         .await?;
 
                     Ok((MaybeCached::Cached(entry.insert(statement.0)), statement.1))
